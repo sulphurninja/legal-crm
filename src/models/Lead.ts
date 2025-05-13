@@ -25,6 +25,7 @@ const leadSchema = new mongoose.Schema({
   applicationType: String,
   lawsuit: String,
   notes: String,
+  organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true },
   fields: [dynamicFieldSchema], // Array of dynamic fields
   status: {
     type: String,

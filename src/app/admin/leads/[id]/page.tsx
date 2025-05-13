@@ -212,23 +212,37 @@ export default function LeadDetailsPage() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    }).format(new Date(dateString));
-  };
+ // Replace both date formatting functions with these implementations
+const formatDate = (dateString: string) => {
+  const date = new Date(dateString);
 
-  const formatDateTime = (dateString: string) => {
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(dateString));
-  };
+  // Get month, day, and year components
+  const month = String(date.getMonth() + 1).padStart(2, '0'); // months are 0-indexed
+  const day = String(date.getDate()).padStart(2, '0');
+  const year = date.getFullYear();
+
+  // Format as mm-dd-yyyy
+  return `${month}-${day}-${year}`;
+};
+
+const formatDateTime = (dateString: string) => {
+  const date = new Date(dateString);
+
+  // Get month, day, and year components
+  const month = String(date.getMonth() + 1).padStart(2, '0'); // months are 0-indexed
+  const day = String(date.getDate()).padStart(2, '0');
+  const year = date.getFullYear();
+
+  // Get time in 12-hour format with AM/PM
+  let hours = date.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  // Format as mm-dd-yyyy hh:mm AM/PM
+  return `${month}-${day}-${year} ${hours}:${minutes} ${ampm}`;
+};
 
   if (loading) {
     return (

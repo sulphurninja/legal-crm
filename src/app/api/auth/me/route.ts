@@ -21,7 +21,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Token missing user ID' }, { status: 401 });
     }
 
-    const user = await User.findById(userId).select('-password');
+    const user = await User.findById(userId)
+      .select('-password')
+      .populate('organizationId', 'name');
+
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
@@ -31,7 +34,11 @@ export async function GET(req: NextRequest) {
         id: user._id.toString(),
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        organization: user.organizationId ? {
+          id: user.organizationId._id,
+          name: user.organizationId.name
+        } : null
       }
     });
   } catch (error) {

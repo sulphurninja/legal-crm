@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Lead from '@/models/Lead';
 import { verifyToken, getAuthToken } from '@/lib/auth';
 import { dbConnect } from '@/lib/dbConnect';
+import User from '@/models/User';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = decoded.id;
-
+    const userRole = decoded.role;
     if (!userId) {
       return NextResponse.json({ error: 'Token missing user ID' }, { status: 401 });
     }
@@ -32,6 +33,14 @@ export async function GET(request: NextRequest) {
 
     // Build query
     let query: any = {};
+
+    // Get the user's organization
+    const user = await User.findById(userId).select('organizationId');
+
+    // Only super_admin can see all leads across organizations
+    if (userRole !== 'super_admin' && user?.organizationId) {
+      query.organizationId = user.organizationId;
+    }
 
     if (status) {
       query.status = status;

@@ -82,7 +82,8 @@ import {
   Check,
   Lock,
   Edit,
-  AlertTriangle
+  AlertTriangle,
+  Building
 } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -91,7 +92,16 @@ import { z } from 'zod';
 import DashboardLayout from '@/components/DashboardLayout';
 import { UserRole } from '@/types';
 
-// Updated user type
+// Define the Organization type
+type Organization = {
+  _id: string;
+  name: string;
+  description?: string;
+  active: boolean;
+  createdAt: string;
+};
+
+// Updated user type to include organization
 type UserType = {
   _id: string;
   id: string;
@@ -101,15 +111,42 @@ type UserType = {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  organizationId?: string;
+  organization?: {
+    _id: string;
+    name: string;
+  };
+};
+
+// Define the current user type
+type CurrentUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  organization?: {
+    id: string;
+    name: string;
+  };
 };
 
 const USER_ROLES: UserRole[] = ['agent', 'admin', 'super_admin'];
 
+// Updated schema to include organization for non-super-admin users
 const newUserSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   email: z.string().email('Invalid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   role: z.enum(['agent', 'admin', 'super_admin']),
+  organizationId: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.role !== 'super_admin' && !data.organizationId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Organization is required for non-super-admin users",
+      path: ['organizationId'],
+    });
+  }
 });
 
 const updateUserSchema = z.object({
@@ -117,10 +154,28 @@ const updateUserSchema = z.object({
   email: z.string().email('Invalid email address'),
   role: z.enum(['agent', 'admin', 'super_admin']),
   active: z.boolean(),
+  organizationId: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.role !== 'super_admin' && !data.organizationId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Organization is required for non-super-admin users",
+      path: ['organizationId'],
+    });
+  }
 });
 
 const updateRoleSchema = z.object({
   role: z.enum(['agent', 'admin', 'super_admin']),
+  organizationId: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.role !== 'super_admin' && !data.organizationId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Organization is required for non-super-admin users",
+      path: ['organizationId'],
+    });
+  }
 });
 
 const updatePasswordSchema = z.object({
@@ -131,17 +186,28 @@ const updatePasswordSchema = z.object({
   path: ["confirmPassword"],
 });
 
+// Add schema for organizations
+const newOrganizationSchema = z.object({
+  name: z.string().min(1, 'Organization name is required'),
+  description: z.string().optional(),
+  active: z.boolean(),
+});
+
 type NewUserFormValues = z.infer<typeof newUserSchema>;
 type UpdateUserFormValues = z.infer<typeof updateUserSchema>;
 type UpdateRoleFormValues = z.infer<typeof updateRoleSchema>;
 type UpdatePasswordFormValues = z.infer<typeof updatePasswordSchema>;
+type NewOrganizationFormValues = z.infer<typeof newOrganizationSchema>;
 
 export default function AdminPage() {
   const router = useRouter();
   const [users, setUsers] = useState<UserType[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createOrgDialogOpen, setCreateOrgDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -153,7 +219,8 @@ export default function AdminPage() {
     admins: 0,
     agents: 0,
     active: 0,
-    inactive: 0
+    inactive: 0,
+    organizations: 0
   });
 
   const createForm = useForm<NewUserFormValues>({
@@ -163,13 +230,24 @@ export default function AdminPage() {
       email: '',
       password: '',
       role: 'agent',
+      organizationId: '',
     },
+  });
+
+  const createOrgForm = useForm<NewOrganizationFormValues>({
+    resolver: zodResolver(newOrganizationSchema),
+    defaultValues: {
+      name: '',
+      description: '',
+      active: true,
+    } as NewOrganizationFormValues,
   });
 
   const updateForm = useForm<UpdateRoleFormValues>({
     resolver: zodResolver(updateRoleSchema),
     defaultValues: {
       role: 'agent',
+      organizationId: '',
     },
   });
 
@@ -180,6 +258,7 @@ export default function AdminPage() {
       email: '',
       role: 'agent',
       active: true,
+      organizationId: '',
     },
   });
 
@@ -192,8 +271,23 @@ export default function AdminPage() {
   });
 
   useEffect(() => {
+    fetchCurrentUser();
     fetchUsers();
+    fetchOrganizations();
   }, []);
+
+  // Helper functions to check current user permissions
+  const isSuperAdmin = () => currentUser?.role === 'super_admin';
+
+  // Get current logged in user details
+  const fetchCurrentUser = async () => {
+    try {
+      const { data } = await axios.get('/api/auth/me');
+      setCurrentUser(data.user);
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+    }
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -208,13 +302,14 @@ export default function AdminPage() {
       const activeCount = data.users.filter((user: UserType) => user.active).length;
       const inactiveCount = data.users.filter((user: UserType) => !user.active).length;
 
-      setStats({
+      setStats(prev => ({
+        ...prev,
         total: totalUsers,
         admins: adminCount,
         agents: agentCount,
         active: activeCount,
         inactive: inactiveCount
-      });
+      }));
 
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -228,9 +323,38 @@ export default function AdminPage() {
     }
   };
 
+  const fetchOrganizations = async () => {
+    try {
+      const { data } = await axios.get('/api/admin/organizations');
+      setOrganizations(data.organizations);
+      setStats(prev => ({
+        ...prev,
+        organizations: data.organizations.length
+      }));
+    } catch (error) {
+      console.error('Error fetching organizations:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load organizations",
+        variant: "destructive",
+      });
+    }
+  };
+
   const onCreateUser = async (values: NewUserFormValues) => {
     setSubmitting(true);
     try {
+      // If current user is not super admin and is creating a user,
+      // assign to their organization
+      if (!isSuperAdmin() && currentUser?.organization?.id) {
+        values.organizationId = currentUser.organization.id;
+      }
+
+      // Non-super-admin users should never be able to create super-admin users
+      if (!isSuperAdmin() && values.role === 'super_admin') {
+        throw new Error('Only super administrators can create super admin users');
+      }
+
       await axios.post('/api/admin/users', values);
       toast({
         title: "Success",
@@ -251,11 +375,65 @@ export default function AdminPage() {
     }
   };
 
-  const onUpdateRole = async (values: UpdateRoleFormValues) => {
-    if (!selectedUser) return;
+  const onCreateOrganization = async (values: NewOrganizationFormValues) => {
+    // Only super admins can create organizations
+    if (!isSuperAdmin()) {
+      toast({
+        title: "Permission Denied",
+        description: "Only super administrators can create organizations",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setSubmitting(true);
     try {
+      await axios.post('/api/admin/organizations', values);
+      toast({
+        title: "Success",
+        description: "Organization created successfully",
+      });
+      fetchOrganizations();
+      setCreateOrgDialogOpen(false);
+      createOrgForm.reset();
+    } catch (error: any) {
+      console.error('Error creating organization:', error);
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to create organization",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onUpdateRole = async (values: UpdateRoleFormValues) => {
+    if (!selectedUser) return;
+
+    // Check permissions
+    if (!isSuperAdmin() && values.role === 'super_admin') {
+      toast({
+        title: "Permission Denied",
+        description: "Only super administrators can assign super admin role",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // Ensure organization is set for non-super-admin roles
+      if (values.role !== 'super_admin' && !values.organizationId) {
+        if (currentUser?.organization?.id) {
+          values.organizationId = currentUser.organization.id;
+        } else if (selectedUser.organizationId) {
+          values.organizationId = selectedUser.organizationId;
+        } else {
+          throw new Error('Organization is required for non-super-admin users');
+        }
+      }
+
       await axios.put(`/api/admin/users/${selectedUser._id || selectedUser.id}`, values);
       toast({
         title: "Success",
@@ -278,8 +456,29 @@ export default function AdminPage() {
   const onUpdateUser = async (values: UpdateUserFormValues) => {
     if (!selectedUser) return;
 
+    // Check permissions
+    if (!isSuperAdmin() && values.role === 'super_admin') {
+      toast({
+        title: "Permission Denied",
+        description: "Only super administrators can assign super admin role",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
+      // Ensure organization is set for non-super-admin roles
+      if (values.role !== 'super_admin' && !values.organizationId) {
+        if (currentUser?.organization?.id) {
+          values.organizationId = currentUser.organization.id;
+        } else if (selectedUser.organizationId) {
+          values.organizationId = selectedUser.organizationId;
+        } else {
+          throw new Error('Organization is required for non-super-admin users');
+        }
+      }
+
       await axios.put(`/api/admin/users/${selectedUser._id || selectedUser.id}`, values);
       toast({
         title: "Success",
@@ -356,6 +555,7 @@ export default function AdminPage() {
   const handleUpdateRoleClick = (user: UserType) => {
     setSelectedUser(user);
     updateForm.setValue('role', user.role);
+    updateForm.setValue('organizationId', user.organizationId || '');
     setUpdateDialogOpen(true);
   };
 
@@ -365,6 +565,7 @@ export default function AdminPage() {
     editForm.setValue('email', user.email);
     editForm.setValue('role', user.role);
     editForm.setValue('active', user.active !== false); // Handle undefined
+    editForm.setValue('organizationId', user.organizationId || '');
     setEditDialogOpen(true);
   };
 
@@ -390,7 +591,8 @@ export default function AdminPage() {
   const filteredUsers = users.filter((user: UserType) =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchQuery.toLowerCase())
+    user.role.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (user.organization?.name && user.organization.name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const getInitials = (name: string) => {
@@ -452,123 +654,282 @@ export default function AdminPage() {
             <p className="text-muted-foreground">Manage system users and their access permissions</p>
           </div>
 
-          <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="md:self-end">
-                <UserPlus className="mr-2 h-4 w-4" />
-                New User
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New User</DialogTitle>
-                <DialogDescription>
-                  Add a new user to the system with appropriate access level.
-                </DialogDescription>
-              </DialogHeader>
+          <div className="flex flex-col md:flex-row gap-2">
+            {/* Only show Create Organization button to super admins */}
+            {isSuperAdmin() && (
+              <Dialog open={createOrgDialogOpen} onOpenChange={setCreateOrgDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="md:self-end">
+                    <Building className="mr-2 h-4 w-4" />
+                    New Organization
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create New Organization</DialogTitle>
+                    <DialogDescription>
+                      Add a new organization to the system.
+                    </DialogDescription>
+                  </DialogHeader>
 
-              <Form {...createForm}>
-                <form onSubmit={createForm.handleSubmit(onCreateUser)} className="space-y-4">
-                  <FormField
-                    control={createForm.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Name*</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter full name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <Form {...createOrgForm}>
+                    <form onSubmit={createOrgForm.handleSubmit(onCreateOrganization)} className="space-y-4">
+                      <FormField
+                        control={createOrgForm.control}
+                        name="name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Organization Name*</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Enter organization name" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                  <FormField
-                    control={createForm.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email*</FormLabel>
-                        <FormControl>
-                          <Input type="email" placeholder="email@example.com" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                      <FormField
+                        control={createOrgForm.control}
+                        name="description"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Description</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Brief description (optional)" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                  <FormField
-                    control={createForm.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Initial Password*</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="Minimum 6 characters" {...field} />
-                        </FormControl>
-                        <FormDescription className="text-xs">
-                          User will be prompted to change this on first login.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                      <FormField
+                        control={createOrgForm.control}
+                        name="active"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel>Active</FormLabel>
+                              <FormDescription>
+                                Inactive organizations will not be available for new users.
+                              </FormDescription>
+                            </div>
+                          </FormItem>
+                        )}
+                      />
 
-                  <FormField
-                    control={createForm.control}
-                    name="role"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Role*</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                        >
+                      <DialogFooter>
+                        <Button type="submit" disabled={submitting}>
+                          {submitting ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Creating...
+                            </>
+                          ) : (
+                            <>
+                              <Building className="mr-2 h-4 w-4" />
+                              Create Organization
+                            </>
+                          )}
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </Form>
+                </DialogContent>
+              </Dialog>
+            )}
+
+            <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="md:self-end">
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  New User
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create New User</DialogTitle>
+                  <DialogDescription>
+                    Add a new user to the system with appropriate access level.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <Form {...createForm}>
+                  <form onSubmit={createForm.handleSubmit(onCreateUser)} className="space-y-4">
+                    <FormField
+                      control={createForm.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Name*</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select role" />
-                            </SelectTrigger>
+                            <Input placeholder="Enter full name" {...field} />
                           </FormControl>
-                          <SelectContent>
-                            {USER_ROLES.map((role) => (
-                              <SelectItem key={role} value={role}>
-                                {role === 'super_admin' ? 'Super Admin' :
-                                  role.charAt(0).toUpperCase() + role.slice(1)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className="text-xs">
-                          Determines what actions the user can perform in the system.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <DialogFooter>
-                    <Button type="submit" disabled={submitting}>
-                      {submitting ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Creating...
-                        </>
-                      ) : (
-                        <>
-                          <UserPlus className="mr-2 h-4 w-4" />
-                          Create User
-                        </>
+                          <FormMessage />
+                        </FormItem>
                       )}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
+                    />
+
+                    <FormField
+                      control={createForm.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email*</FormLabel>
+                          <FormControl>
+                            <Input type="email" placeholder="email@example.com" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={createForm.control}
+                      name="password"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Initial Password*</FormLabel>
+                          <FormControl>
+                            <Input type="password" placeholder="Minimum 6 characters" {...field} />
+                          </FormControl>
+                          <FormDescription className="text-xs">
+                            User will be prompted to change this on first login.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={createForm.control}
+                      name="role"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Role*</FormLabel>
+                          <Select
+                            onValueChange={(value) => {
+                              field.onChange(value);
+                              // If changing to super_admin, clear organization
+                              if (value === 'super_admin') {
+                                createForm.setValue('organizationId', '');
+                              }
+                            }}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select role" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {USER_ROLES
+                                // Only show super_admin option to super admins
+                                .filter(role => role !== 'super_admin' || isSuperAdmin())
+                                .map((role) => (
+                                  <SelectItem key={role} value={role}>
+                                    {role === 'super_admin' ? 'Super Admin' :
+                                      role.charAt(0).toUpperCase() + role.slice(1)}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription className="text-xs">
+                            Determines what actions the user can perform in the system.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Only show organization field if role is not super_admin */}
+                    {createForm.watch('role') !== 'super_admin' && (
+                      <FormField
+                        control={createForm.control}
+                        name="organizationId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Organization*</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              defaultValue={field.value}
+                              disabled={!isSuperAdmin() && !!currentUser?.organization?.id}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select organization" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {/* If not super admin, only show current user's organization */}
+                                {!isSuperAdmin() && currentUser?.organization ? (
+                                  <SelectItem value={currentUser.organization.id}>
+                                    {currentUser.organization.name}
+                                  </SelectItem>
+                                ) : (
+                                  organizations.map((org) => (
+                                    <SelectItem key={org._id} value={org._id}>
+                                      {org.name}
+                                    </SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                            <FormDescription className="text-xs">
+                              The organization this user belongs to.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+
+                    <DialogFooter>
+                      <Button type="submit" disabled={submitting}>
+                        {submitting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <UserPlus className="mr-2 h-4 w-4" />
+                            Create User
+                          </>
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {/* Add Organizations stats card for super admin */}
+          {isSuperAdmin() && (
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Organizations</p>
+                    <h3 className="text-2xl font-bold">{stats.organizations}</h3>
+                  </div>
+                  <div className="p-2 rounded-full bg-indigo-100 dark:bg-indigo-900/20">
+                    <Building className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardContent className="p-6">
               <div className="flex justify-between items-start">
@@ -690,6 +1051,7 @@ export default function AdminPage() {
                       <TableHead>User</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Role</TableHead>
+                      <TableHead>Organization</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead className="w-[80px]">Actions</TableHead>
@@ -698,7 +1060,7 @@ export default function AdminPage() {
                   <TableBody>
                     {filteredUsers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center">
+                        <TableCell colSpan={7} className="h-24 text-center">
                           {searchQuery ? (
                             <>
                               <p className="text-muted-foreground">No users match "{searchQuery}"</p>
@@ -755,6 +1117,10 @@ export default function AdminPage() {
                               {user.role === 'super_admin' ? 'Super Admin' :
                                 user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                             </Badge>
+                          </TableCell>
+
+                          <TableCell>
+                            {user.organizationId?.name || (user.role === 'super_admin' ? '—' : 'Not Assigned')}
                           </TableCell>
 
                           <TableCell>
@@ -872,7 +1238,13 @@ export default function AdminPage() {
                       <FormItem>
                         <FormLabel>Role*</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            // If changing to super_admin, clear organization
+                            if (value === 'super_admin') {
+                              editForm.setValue('organizationId', '');
+                            }
+                          }}
                           defaultValue={field.value}
                         >
                           <FormControl>
@@ -881,18 +1253,63 @@ export default function AdminPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {USER_ROLES.map((role) => (
-                              <SelectItem key={role} value={role}>
-                                {role === 'super_admin' ? 'Super Admin' :
-                                  role.charAt(0).toUpperCase() + role.slice(1)}
-                              </SelectItem>
-                            ))}
+                            {USER_ROLES
+                              // Only show super_admin option to super admins
+                              .filter(role => role !== 'super_admin' || isSuperAdmin())
+                              .map((role) => (
+                                <SelectItem key={role} value={role}>
+                                  {role === 'super_admin' ? 'Super Admin' :
+                                    role.charAt(0).toUpperCase() + role.slice(1)}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+
+                  {/* Only show organization field if role is not super_admin */}
+                  {editForm.watch('role') !== 'super_admin' && (
+                    <FormField
+                      control={editForm.control}
+                      name="organizationId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Organization*</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                            disabled={!isSuperAdmin() && !!currentUser?.organization?.id}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select organization" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {/* If not super admin, only show current user's organization */}
+                              {!isSuperAdmin() && currentUser?.organization ? (
+                                <SelectItem value={currentUser.organization.id}>
+                                  {currentUser.organization.name}
+                                </SelectItem>
+                              ) : (
+                                organizations.map((org) => (
+                                  <SelectItem key={org._id} value={org._id}>
+                                    {org.name}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            The organization this user belongs to.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <FormField
                     control={editForm.control}
@@ -967,7 +1384,13 @@ export default function AdminPage() {
                     <FormItem>
                       <FormLabel>Role*</FormLabel>
                       <Select
-                        onValueChange={field.onChange}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          // If changing to super_admin, clear organization
+                          if (value === 'super_admin') {
+                            updateForm.setValue('organizationId', '');
+                          }
+                        }}
                         defaultValue={field.value}
                       >
                         <FormControl>
@@ -976,12 +1399,15 @@ export default function AdminPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {USER_ROLES.map((role) => (
-                            <SelectItem key={role} value={role}>
-                              {role === 'super_admin' ? 'Super Admin' :
-                                role.charAt(0).toUpperCase() + role.slice(1)}
-                            </SelectItem>
-                          ))}
+                          {USER_ROLES
+                            // Only show super_admin option to super admins
+                            .filter(role => role !== 'super_admin' || isSuperAdmin())
+                            .map((role) => (
+                              <SelectItem key={role} value={role}>
+                                {role === 'super_admin' ? 'Super Admin' :
+                                  role.charAt(0).toUpperCase() + role.slice(1)}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                       <FormDescription>
@@ -991,6 +1417,48 @@ export default function AdminPage() {
                     </FormItem>
                   )}
                 />
+
+                {/* Only show organization field if role is not super_admin */}
+                {updateForm.watch('role') !== 'super_admin' && (
+                  <FormField
+                    control={updateForm.control}
+                    name="organizationId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Organization*</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                          disabled={!isSuperAdmin() && !!currentUser?.organization?.id}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select organization" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {/* If not super admin, only show current user's organization */}
+                            {!isSuperAdmin() && currentUser?.organization ? (
+                              <SelectItem value={currentUser.organization.id}>
+                                {currentUser.organization.name}
+                              </SelectItem>
+                            ) : (
+                              organizations.map((org) => (
+                                <SelectItem key={org._id} value={org._id}>
+                                  {org.name}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          The organization this user belongs to.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <DialogFooter>
                   <Button type="submit" disabled={submitting}>

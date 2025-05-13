@@ -5,7 +5,7 @@ import { dbConnect } from '@/lib/dbConnect';
 
 export async function GET(request: NextRequest) {
   try {
-     await dbConnect();
+    await dbConnect();
 
     // Already returns decoded token payload
     const decoded = getAuthToken(request);
@@ -15,14 +15,33 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = decoded.id;
+    const userRole = decoded.role;
 
     if (!userId) {
       return NextResponse.json({ error: 'Token missing user ID' }, { status: 401 });
     }
+
     await dbConnect();
 
-    const users = await User.find({})
+    let query = {};
+
+    // If not super_admin, only show users from same organization
+    if (userRole !== 'super_admin') {
+      const user = await User.findById(userId).select('organizationId');
+      if (!user || !user.organizationId) {
+        return NextResponse.json(
+          { message: 'User not assigned to an organization' },
+          { status: 403 }
+        );
+      }
+      query = { organizationId: user.organizationId };
+    }
+    // For super_admin - no query filter, return all users
+    // This ensures users without an organization are also visible
+
+    const users = await User.find(query)
       .select('-password')
+      .populate('organizationId', 'name') // Populate organization details
       .sort({ createdAt: -1 })
       .lean();
 
@@ -38,7 +57,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-      await dbConnect();
+    await dbConnect();
 
     // Already returns decoded token payload
     const decoded = getAuthToken(request);
@@ -48,6 +67,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = decoded.id;
+    const userRole = decoded.role;
 
     if (!userId) {
       return NextResponse.json({ error: 'Token missing user ID' }, { status: 401 });
@@ -74,16 +94,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get organization for non-super-admins
+    let organizationId = body.organizationId;
+
+    // If not super_admin creating a user, assign to creator's organization
+    if (userRole !== 'super_admin') {
+      const adminUser = await User.findById(userId).select('organizationId');
+      if (!adminUser || !adminUser.organizationId) {
+        return NextResponse.json(
+          { message: 'Admin not assigned to an organization' },
+          { status: 403 }
+        );
+      }
+      organizationId = adminUser.organizationId;
+    }
+    // For super_admin: if creating a non-super-admin user, organization is required
+    else if (body.role !== 'super_admin' && !organizationId) {
+      return NextResponse.json(
+        { message: 'Organization ID is required for non-super-admin users' },
+        { status: 400 }
+      );
+    }
+    // For super_admin creating super_admin: organization is not required
+
     // Hash the password
     const hashedPassword = await hashPassword(body.password);
 
-    // Create the user
-    const user = await User.create({
+    // Create the user with appropriate organization (or without for super_admin)
+    const userData: any = {
       name: body.name,
       email: body.email,
       password: hashedPassword,
-      role: body.role
-    });
+      role: body.role,
+    };
+
+    // Only add organizationId if it's provided or required
+    if (organizationId || body.role !== 'super_admin') {
+      userData.organizationId = organizationId;
+    }
+
+    const user = await User.create(userData);
 
     return NextResponse.json({
       message: 'User created successfully',
@@ -91,7 +141,8 @@ export async function POST(request: NextRequest) {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        organizationId: user.organizationId
       }
     }, { status: 201 });
   } catch (error) {

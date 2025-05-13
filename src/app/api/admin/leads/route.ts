@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthToken } from '@/lib/auth';
 import Lead from '@/models/Lead';
 import { dbConnect } from '@/lib/dbConnect';
+import User from '@/models/User';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,6 +14,11 @@ export async function GET(request: NextRequest) {
     if (!decoded || typeof decoded !== 'object') {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
+    const userId = decoded.id;
+    const userRole = decoded.role;
+
+    // Get user's organization
+    const user = await User.findById(userId).select('organizationId');
 
     // Get query parameters for potential filtering
     const { searchParams } = new URL(request.url);
@@ -22,6 +28,9 @@ export async function GET(request: NextRequest) {
     const query: any = {};
     if (status) {
       query.status = status;
+    }
+    if (userRole !== 'super_admin' && user?.organizationId) {
+      query.organizationId = user.organizationId;
     }
 
     const leads = await Lead.find(query)
