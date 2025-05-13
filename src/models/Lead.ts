@@ -25,7 +25,7 @@ const leadSchema = new mongoose.Schema({
   applicationType: String,
   lawsuit: String,
   notes: String,
-  organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true },
+  organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' },
   fields: [dynamicFieldSchema], // Array of dynamic fields
   status: {
     type: String,
@@ -33,7 +33,7 @@ const leadSchema = new mongoose.Schema({
       "PENDING", "REJECTED", "VERIFIED", "REJECTED_BY_CLIENT", "PAID",
       "DUPLICATE", "NOT_RESPONDING", "FELONY", "DEAD_LEAD", "WORKING",
       "CALL_BACK", "ATTEMPT_1", "ATTEMPT_2", "ATTEMPT_3", "ATTEMPT_4",
-      "CHARGEBACK", "WAITING_ID", "SENT_CLIENT", "QC", "ID_VERIFIED"
+      "CHARGEBACK", "WAITING_ID", "SENT_CLIENT", "QC", "ID_VERIFIED", "BILLABLE"
     ],
     default: "PENDING",
   },
