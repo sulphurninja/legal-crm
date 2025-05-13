@@ -52,7 +52,8 @@ import {
   Search,
   BadgeCheck,
   ChevronRight,
-  Loader2
+  Loader2,
+  DollarSignIcon
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { LeadStatus } from '@/types';
@@ -187,6 +188,12 @@ const STATUS_CONFIG: Record<string, { icon: React.ReactNode, color: string, bgCo
     color: '#15803D',
     bgColor: '#DCFCE7',
     description: 'Leads with verified ID'
+  },
+  BILLABLE: {
+    icon: <DollarSignIcon className="h-5 w-5" />,
+    color: '#15803D',
+    bgColor: '#DCFCE7',
+    description: 'Billable'
   }
 };
 
@@ -456,7 +463,7 @@ export default function Dashboard() {
           </motion.div>
         )}
 
-  {/* // Update only the Key Metrics Cards section in your Dashboard component */}
+        {/* // Update only the Key Metrics Cards section in your Dashboard component */}
         {/* // Keep all other parts the same
 
         // Key Metrics Cards */}
