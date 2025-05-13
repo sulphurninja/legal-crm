@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import React, { useEffect, useState, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import axios from 'axios';
 import DashboardLayout from '@/components/DashboardLayout';
@@ -141,10 +141,13 @@ const DEFAULT_STATUS = {
   icon: <FileText className="h-4 w-4" />
 };
 
-export default function LeadsPage() {
+// Separate component for the search params functionality
+function LeadsWithSearchParams() {
   const { user, loading: authLoading, authChecked } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
+
+  // Import useSearchParams in this component that will be wrapped in Suspense
+  const searchParams = new URLSearchParams(window.location.search);
 
   // Get status from URL if available
   const statusParam = searchParams.get('status') || '';
@@ -358,235 +361,232 @@ export default function LeadsPage() {
   }
 
   return (
-    <DashboardLayout>
-      <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Lead Management</h1>
-            <p className="text-muted-foreground mt-1">
-              Track and manage all client Leads in your pipeline
-            </p>
-          </div>
-          <Button onClick={() => router.push('/leads/create')} className="shadow-sm">
-            <Plus className="mr-2 h-4 w-4" />
-            New Lead
-          </Button>
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Lead Management</h1>
+          <p className="text-muted-foreground mt-1">
+            Track and manage all client Leads in your pipeline
+          </p>
         </div>
+        <Button onClick={() => router.push('/leads/create')} className="shadow-sm">
+          <Plus className="mr-2 h-4 w-4" />
+          New Lead
+        </Button>
+      </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="md:col-span-2">
-            <CardHeader className="pb-3">
-              <div className="flex items-center space-x-2">
-                <Search className="h-5 w-5 text-muted-foreground" />
-                <CardTitle>Search Leads</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
-                  <Input
-                    placeholder="Search by name, email, or phone..."
-                    value={searchInput}
-                    onChange={handleSearchChange}
-                    className="pl-10"
-                  />
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="flex gap-2">
-                  <Button type="submit" className="whitespace-nowrap">
-                    Search
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="whitespace-nowrap"
-                    onClick={() => {
-                      setSearchInput('');
-                      setSearch('');
-                      setStatusFilter('');
-                    }}
-                  >
-                    Clear
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center space-x-2">
-                <Filter className="h-5 w-5 text-muted-foreground" />
-                <CardTitle>Status Filter</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Select
-                value={statusFilter}
-                onValueChange={handleStatusChange}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Statuses</SelectItem>
-                  {Object.keys(STATUS_COLORS).map(status => (
-                    <SelectItem key={status} value={status}>
-                      <div className="flex items-center">
-                        <div className={`w-2 h-2 rounded-full mr-2 ${getStatusStyle(status as LeadStatus).bg} ${getStatusStyle(status as LeadStatus).text}`}></div>
-                        {status.replace(/_/g, ' ')}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="shadow-sm border-slate-200 dark:border-slate-800">
-          <CardHeader className="px-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-xl">
-                  {statusFilter
-                    ? `${statusFilter.replace(/_/g, ' ')} Leads`
-                    : 'All Leads'}
-                </CardTitle>
-                <CardDescription>
-                  {pagination.total} Lead{pagination.total !== 1 ? 's' : ''} found
-                </CardDescription>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchLeads}
-                className="self-start sm:self-center"
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Refresh
-              </Button>
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="md:col-span-2">
+          <CardHeader className="pb-3">
+            <div className="flex items-center space-x-2">
+              <Search className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Search Leads</CardTitle>
             </div>
           </CardHeader>
-
-          <Separator />
-
-          <CardContent className="p-0">
-            {loading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <CardContent>
+            <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Input
+                  placeholder="Search by name, email, or phone..."
+                  value={searchInput}
+                  onChange={handleSearchChange}
+                  className="pl-10"
+                />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               </div>
-            ) : leads.length === 0 ? (
-              <div className="text-center py-12 px-6">
-                <FileText className="mx-auto h-12 w-12 text-muted-foreground opacity-30 mb-3" />
-                <h3 className="text-lg font-medium mb-1">No Leads found</h3>
-                <p className="text-muted-foreground mb-4">
-                  Try adjusting your search filters or create a new Lead.
-                </p>
+              <div className="flex gap-2">
+                <Button type="submit" className="whitespace-nowrap">
+                  Search
+                </Button>
                 <Button
-                  onClick={() => router.push('/leads/create')}
+                  variant="outline"
+                  className="whitespace-nowrap"
+                  onClick={() => {
+                    setSearchInput('');
+                    setSearch('');
+                    setStatusFilter('');
+                  }}
                 >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create New Lead
+                  Clear
                 </Button>
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-slate-50 hover:bg-slate-50 dark:bg-slate-900/50 dark:hover:bg-slate-900/50">
-                      <TableHead>Client Name</TableHead>
-                      <TableHead>Contact Information</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Created By</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {leads.map((lead) => (
-                      <TableRow
-                        key={lead._id}
-                        className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/50"
-                        onClick={() => router.push(`/leads/${lead._id}`)}
-                      >
-                        <TableCell className="font-medium">
-                          {lead.firstName} {lead.lastName}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col space-y-1">
-                            <div className="flex items-center text-sm">
-                              <Mail className="h-3 w-3 mr-2 text-muted-foreground" />
-                              <span className="text-muted-foreground">{lead.email}</span>
-                            </div>
-                            <div className="flex items-center text-sm">
-                              <PhoneCall className="h-3 w-3 mr-2 text-muted-foreground" />
-                              <span className="text-muted-foreground">{lead.phone}</span>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            className={`${getStatusStyle(lead.status).bg} ${getStatusStyle(lead.status).text} font-medium`}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              {React.createElement(getStatusStyle(lead.status).icon.type, {
-                                className: getStatusStyle(lead.status).icon.props.className,
-                                key: 'status-icon'
-                              })}
-                              <span>{lead.status.replace(/_/g, ' ')}</span>
-                            </div>
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          <div className="flex items-center">
-                            <Clock className="h-3 w-3 mr-2 text-muted-foreground" />
-                            {format(new Date(lead.createdAt), 'MMM d, yyyy')}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {lead.createdBy?.name || 'Unknown'}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <MoreHorizontal className="h-4 w-4" />
-                                <span className="sr-only">Actions</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={(e) => {
-                                e.stopPropagation();
-                                router.push(`/leads/${lead._id}`);
-                              }}>
-                                <Eye className="mr-2 h-4 w-4" />
-                                View Details
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewHistory(lead);
-                              }}>
-                                <History className="mr-2 h-4 w-4" />
-                                View History
-                              </DropdownMenuItem>
+            </form>
+          </CardContent>
+        </Card>
 
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-
-                <div className="p-4 border-t">
-                  {renderPagination()}
-                </div>
-              </div>
-            )}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center space-x-2">
+              <Filter className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Status Filter</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Select
+              value={statusFilter}
+              onValueChange={handleStatusChange}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Statuses</SelectItem>
+                {Object.keys(STATUS_COLORS).map(status => (
+                  <SelectItem key={status} value={status}>
+                    <div className="flex items-center">
+                      <div className={`w-2 h-2 rounded-full mr-2 ${getStatusStyle(status as LeadStatus).bg} ${getStatusStyle(status as LeadStatus).text}`}></div>
+                      {status.replace(/_/g, ' ')}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </CardContent>
         </Card>
       </div>
+
+      <Card className="shadow-sm border-slate-200 dark:border-slate-800">
+        <CardHeader className="px-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-xl">
+                {statusFilter
+                  ? `${statusFilter.replace(/_/g, ' ')} Leads`
+                  : 'All Leads'}
+              </CardTitle>
+              <CardDescription>
+                {pagination.total} Lead{pagination.total !== 1 ? 's' : ''} found
+              </CardDescription>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchLeads}
+              className="self-start sm:self-center"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+
+        <Separator />
+
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : leads.length === 0 ? (
+            <div className="text-center py-12 px-6">
+              <FileText className="mx-auto h-12 w-12 text-muted-foreground opacity-30 mb-3" />
+              <h3 className="text-lg font-medium mb-1">No Leads found</h3>
+              <p className="text-muted-foreground mb-4">
+                Try adjusting your search filters or create a new Lead.
+              </p>
+              <Button
+                onClick={() => router.push('/leads/create')}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Create New Lead
+              </Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 hover:bg-slate-50 dark:bg-slate-900/50 dark:hover:bg-slate-900/50">
+                    <TableHead>Client Name</TableHead>
+                    <TableHead>Contact Information</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Created By</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {leads.map((lead) => (
+                    <TableRow
+                      key={lead._id}
+                      className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/50"
+                      onClick={() => router.push(`/leads/${lead._id}`)}
+                    >
+                      <TableCell className="font-medium">
+                        {lead.firstName} {lead.lastName}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col space-y-1">
+                          <div className="flex items-center text-sm">
+                            <Mail className="h-3 w-3 mr-2 text-muted-foreground" />
+                            <span className="text-muted-foreground">{lead.email}</span>
+                          </div>
+                          <div className="flex items-center text-sm">
+                            <PhoneCall className="h-3 w-3 mr-2 text-muted-foreground" />
+                            <span className="text-muted-foreground">{lead.phone}</span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={`${getStatusStyle(lead.status).bg} ${getStatusStyle(lead.status).text} font-medium`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            {React.createElement(getStatusStyle(lead.status).icon.type, {
+                              className: getStatusStyle(lead.status).icon.props.className,
+                              key: 'status-icon'
+                            })}
+                            <span>{lead.status.replace(/_/g, ' ')}</span>
+                          </div>
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <div className="flex items-center">
+                          <Clock className="h-3 w-3 mr-2 text-muted-foreground" />
+                          {format(new Date(lead.createdAt), 'MMM d, yyyy')}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {lead.createdBy?.name || 'Unknown'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Actions</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/leads/${lead._id}`);
+                            }}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewHistory(lead);
+                            }}>
+                              <History className="mr-2 h-4 w-4" />
+                              View History
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              <div className="p-4 border-t">
+                {renderPagination()}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Lead History Dialog */}
       <Dialog
@@ -697,6 +697,21 @@ export default function LeadsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// Main component with Suspense
+export default function LeadsPage() {
+  return (
+    <DashboardLayout>
+      <Suspense fallback={
+        <div className="flex h-screen w-full items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }>
+        <LeadsWithSearchParams />
+      </Suspense>
     </DashboardLayout>
   );
 }
