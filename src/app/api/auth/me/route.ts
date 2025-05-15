@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, getAuthToken } from '@/lib/auth';
 import User from '@/models/User';
+import Organization from '@/models/Organization';
 import { dbConnect } from '@/lib/dbConnect';
 import mongoose from 'mongoose';
 
@@ -21,12 +22,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Token missing user ID' }, { status: 401 });
     }
 
-    const user = await User.findById(userId)
-      .select('-password')
-      .populate('organizationId', 'name');
+    // Get user without population
+    const user = await User.findById(userId).select('-password');
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Manually handle organization if needed
+    let organization = null;
+    if (user.organizationId) {
+      try {
+        organization = await Organization.findById(user.organizationId);
+      } catch (orgError) {
+        console.error('Error fetching organization:', orgError);
+      }
     }
 
     return NextResponse.json({
@@ -35,9 +45,9 @@ export async function GET(req: NextRequest) {
         name: user.name,
         email: user.email,
         role: user.role,
-        organization: user.organizationId ? {
-          id: user.organizationId._id,
-          name: user.organizationId.name
+        organization: organization ? {
+          id: organization._id.toString(),
+          name: organization.name
         } : null
       }
     });

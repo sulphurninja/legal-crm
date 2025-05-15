@@ -21,8 +21,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Token missing user ID' }, { status: 401 });
     }
 
-    await dbConnect();
-
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '10');
@@ -37,7 +35,8 @@ export async function GET(request: NextRequest) {
     // Get the user's organization
     const user = await User.findById(userId).select('organizationId');
 
-    // Only super_admin can see all leads across organizations
+    // If the user has an organization ID and is not a super_admin,
+    // filter leads by their organization
     if (userRole !== 'super_admin' && user?.organizationId) {
       query.organizationId = user.organizationId;
     }
@@ -93,6 +92,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
+    // Get the user's organization to assign it to the lead
+    const user = await User.findById(decoded.id).select('organizationId');
+
     const body = await request.json();
 
     // Check for duplicate email or phone
@@ -100,9 +102,19 @@ export async function POST(request: NextRequest) {
     let duplicateReason = '';
     let existingLeadInfo = null;
 
+    // Build duplicate query with organization restriction for non-super_admin
+    let duplicateQuery: any = {};
+
+    // Only super_admin can see duplicates across organizations
+    if (decoded.role !== 'super_admin' && user?.organizationId) {
+      duplicateQuery.organizationId = user.organizationId;
+    }
+
     // Only check if email or phone is provided
     if (body.email) {
-      const duplicateEmail = await Lead.findOne({ email: body.email })
+      duplicateQuery.email = body.email;
+
+      const duplicateEmail = await Lead.findOne(duplicateQuery)
         .populate('createdBy', 'name email');
 
       if (duplicateEmail) {
@@ -118,9 +130,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Reset duplicate query except for organization filter
+    if (decoded.role !== 'super_admin' && user?.organizationId) {
+      duplicateQuery = { organizationId: user.organizationId };
+    } else {
+      duplicateQuery = {};
+    }
+
     // If not duplicate by email, check phone
     if (!isDuplicate && body.phone) {
-      const duplicatePhone = await Lead.findOne({ phone: body.phone })
+      duplicateQuery.phone = body.phone;
+
+      const duplicatePhone = await Lead.findOne(duplicateQuery)
         .populate('createdBy', 'name email');
 
       if (duplicatePhone) {
@@ -158,7 +179,7 @@ export async function POST(request: NextRequest) {
 
     console.log("Transformed fields for database:", fieldsArray);
 
-    // Create the lead with proper fields format
+    // Create the lead with proper fields format and assign organization
     const lead = await Lead.create({
       firstName: body.firstName,
       lastName: body.lastName,
@@ -172,6 +193,8 @@ export async function POST(request: NextRequest) {
       status: status,
       fields: fieldsArray,
       createdBy: decoded.id,
+      // Assign the user's organization ID to the lead
+      organizationId: user?.organizationId || null,
       statusHistory: [
         {
           fromStatus: '',
