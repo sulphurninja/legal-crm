@@ -64,7 +64,7 @@ const ALL_STATUSES: LeadStatus[] = [
   "PENDING", "REJECTED", "VERIFIED", "REJECTED_BY_CLIENT", "PAID",
   "DUPLICATE", "NOT_RESPONDING", "FELONY", "DEAD_LEAD", "WORKING",
   "CALL_BACK", "ATTEMPT_1", "ATTEMPT_2", "ATTEMPT_3", "ATTEMPT_4",
-  "CHARGEBACK", "WAITING_ID", "SENT_CLIENT", "QC", "ID_VERIFIED"
+  "CHARGEBACK", "WAITING_ID", "SENT_CLIENT", "QC", "ID_VERIFIED", "CAMPING_PAUSED", "SENT_TO_LAW_FIRM"
 ];
 
 // Status icons and colors
@@ -194,6 +194,18 @@ const STATUS_CONFIG: Record<string, { icon: React.ReactNode, color: string, bgCo
     color: '#15803D',
     bgColor: '#DCFCE7',
     description: 'Billable'
+  },
+  CAMPAIGN_PAUSED: {
+    icon: <DollarSignIcon className="h-5 w-5" />,
+    color: '#15803D',
+    bgColor: '#DCFCE7',
+    description: 'Campaign Paused'
+  },
+   SENT_TO_LAW_FIRM: {
+    icon: <DollarSignIcon className="h-5 w-5" />,
+    color: '#15803D',
+    bgColor: '#DCFCE7',
+    description: 'Sent To Law Firm'
   }
 };
 

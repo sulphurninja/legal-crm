@@ -32,7 +32,9 @@ export type LeadStatus =
   | 'WAITING_ID'
   | 'SENT_CLIENT'
   | 'QC'
-  | 'ID_VERIFIED';
+  | 'ID_VERIFIED'
+  | 'CAMPAIGN_PAUSED'
+  | 'SENT_TO_LAW_FIRM';
 
 export interface StatusHistoryItem {
   _id?: string | ObjectId;
